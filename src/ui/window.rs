@@ -26,18 +26,37 @@ use wayland_client::{
 
 use super::input;
 
-// ── Shared toggle flag between tokio (shortcut) and Wayland thread ──────────
+// ── Shared toggle flag + wakeup pipe for the Wayland thread ─────────────────
 
-#[derive(Clone, Default)]
-pub struct ToggleFlag(pub Arc<Mutex<bool>>);
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+
+/// Shared between the tokio side (shortcut/tray) and the Wayland thread.
+/// `trigger()` flips the bool AND writes a byte to the wakeup pipe so the
+/// Wayland thread unblocks immediately instead of waiting for the next event.
+#[derive(Clone)]
+pub struct ToggleFlag {
+    visible: Arc<Mutex<bool>>,
+    wakeup_tx: Arc<Mutex<UnixStream>>,
+}
 
 impl ToggleFlag {
-    pub fn trigger(&self) {
-        let mut v = self.0.lock().unwrap();
-        *v = !*v;
+    /// Returns (flag, wakeup_rx) — pass the rx to the Wayland event loop.
+    pub fn new() -> (Self, UnixStream) {
+        let (tx, rx) = UnixStream::pair().expect("socketpair failed");
+        tx.set_nonblocking(true).expect("set_nonblocking tx");
+        rx.set_nonblocking(true).expect("set_nonblocking rx");
+        (Self { visible: Arc::new(Mutex::new(false)), wakeup_tx: Arc::new(Mutex::new(tx)) }, rx)
     }
+
+    pub fn trigger(&self) {
+        let mut v = self.visible.lock().unwrap();
+        *v = !*v;
+        let _ = self.wakeup_tx.lock().unwrap().write(&[1]);
+    }
+
     pub fn get(&self) -> bool {
-        *self.0.lock().unwrap()
+        *self.visible.lock().unwrap()
     }
 }
 
@@ -291,7 +310,9 @@ impl LayerShellHandler for DropdownSurface {
             self.screen_width = configure.new_size.0;
         }
         self.configured = true;
-        self.draw(qh);
+        if self.visible {
+            self.draw(qh);
+        }
     }
 }
 

@@ -1152,6 +1152,7 @@ dependencies = [
  "dirs",
  "fontdue",
  "futures-util",
+ "libc",
  "portable-pty",
  "serde",
  "smithay-client-toolkit",
