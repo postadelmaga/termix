@@ -22,7 +22,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             shortcut: "F12".to_string(),
-            terminal: TerminalBackend::Foot,
+            terminal: TerminalBackend::Kitty,
             height_percent: 40,
             opacity: 0.92,
             animation_ms: 150,

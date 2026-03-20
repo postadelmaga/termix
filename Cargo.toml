@@ -23,6 +23,14 @@ dirs = "5"
 anyhow = "1"
 futures-util = "0.3"
 
+# Terminal emulation
+portable-pty = "0.8"
+alacritty_terminal = "0.24"
+fontdue = "0.9"
+
+# Input handling
+xkbcommon = { version = "0.7", features = ["wayland"] }
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
