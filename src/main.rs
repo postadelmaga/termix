@@ -1,4 +1,5 @@
 mod config;
+mod shortcut;
 mod terminal;
 mod ui;
 
@@ -47,9 +48,16 @@ async fn main() -> Result<()> {
     terminal.spawn()?;
 
     // ── Main loop ───────────────────────────────────────────────────────────
-    // TODO (#5): replace Ctrl-C with global shortcut via KGlobalAccel DBus
-    tracing::info!("termix running — press {} to toggle (Ctrl-C to quit)", config.shortcut);
+    // ── Global shortcut ─────────────────────────────────────────────────────
+    let shortcut_key = config.shortcut.clone();
+    let toggle_for_shortcut = toggle_flag.clone();
+    tokio::spawn(async move {
+        if let Err(e) = shortcut::register_and_listen(shortcut_key, toggle_for_shortcut).await {
+            tracing::error!("Global shortcut error: {e}");
+        }
+    });
 
+    tracing::info!("termix running — press {} to toggle (Ctrl-C to quit)", config.shortcut);
     tokio::signal::ctrl_c().await?;
     tracing::info!("shutting down");
     Ok(())
