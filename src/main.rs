@@ -1,6 +1,7 @@
 mod config;
 mod shortcut;
 mod terminal;
+mod tray;
 mod ui;
 
 use anyhow::Result;
@@ -54,6 +55,14 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = shortcut::register_and_listen(shortcut_key, toggle_for_shortcut).await {
             tracing::error!("Global shortcut error: {e}");
+        }
+    });
+
+    // ── System tray ─────────────────────────────────────────────────────────
+    let toggle_for_tray = toggle_flag.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tray::run(toggle_for_tray).await {
+            tracing::error!("Tray error: {e}");
         }
     });
 
