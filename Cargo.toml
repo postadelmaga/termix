@@ -1,0 +1,15 @@
+[package]
+name = "termix"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cxx-qt = "0.7"
+cxx-qt-lib = "0.7"
+tokio = { version = "1", features = ["full"] }
+zbus = "5"          # DBus per KWin integration
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+
+[build-dependencies]
+cxx-qt-build = "0.7"
