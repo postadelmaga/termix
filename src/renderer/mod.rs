@@ -9,14 +9,11 @@
 use alacritty_terminal::{
     grid::Dimensions,
     sync::FairMutex,
-    term::{
-        cell::Flags,
-        Term,
-    },
+    term::Term,
     vte::ansi::{Color, NamedColor},
 };
 use anyhow::{Context, Result};
-use fontdue::{Font, FontSettings, layout::{CoordinateSystem, Layout, TextStyle}};
+use fontdue::{Font, FontSettings};
 use std::sync::Arc;
 
 use crate::vte::TermEventHandler;

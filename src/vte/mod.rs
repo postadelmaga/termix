@@ -46,7 +46,9 @@ impl EventListener for TermEventHandler {
 
 pub struct TerminalState {
     pub term: Arc<FairMutex<Term<TermEventHandler>>>,
+    #[allow(dead_code)]
     pub dirty: Arc<AtomicBool>,
+    #[allow(dead_code)]
     notifier: Notifier,
 }
 
@@ -104,6 +106,7 @@ impl TerminalState {
     }
 
     /// Notify the PTY of a terminal resize.
+    #[allow(dead_code)]
     pub fn resize(&self, cols: u16, rows: u16) {
         let size = TermDimensions {
             columns: cols as usize,
@@ -119,6 +122,7 @@ impl TerminalState {
     }
 
     /// Returns true (and clears the flag) if the terminal needs redrawing.
+    #[allow(dead_code)]
     pub fn take_dirty(&self) -> bool {
         self.dirty.swap(false, Ordering::Relaxed)
     }

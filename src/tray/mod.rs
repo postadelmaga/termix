@@ -6,7 +6,7 @@
 ///   3. Register with org.kde.StatusNotifierWatcher
 ///   4. Handle Activate (click) → toggle dropdown
 use anyhow::{Context, Result};
-use zbus::{connection, interface, object_server::SignalContext, proxy};
+use zbus::{connection, interface, object_server::SignalEmitter, proxy};
 
 use crate::ui::ToggleFlag;
 
@@ -90,10 +90,10 @@ impl TrayIcon {
     // ── Signals ─────────────────────────────────────────────────────────────
 
     #[zbus(signal)]
-    async fn new_icon(ctxt: &SignalContext<'_>) -> zbus::Result<()>;
+    async fn new_icon(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn new_tooltip(ctxt: &SignalContext<'_>) -> zbus::Result<()>;
+    async fn new_tooltip(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
 
 // ── Public entry point ───────────────────────────────────────────────────────

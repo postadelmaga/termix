@@ -30,6 +30,12 @@ async fn main() -> Result<()> {
     let qh = queue.handle();
     surface.create_surface(&qh);
 
+    // ── Terminal (VTE) ──────────────────────────────────────────────────────
+    let term_state = vte::TerminalState::new(220, 50, "zellij")?;
+    let renderer = renderer::Renderer::new(16.0)?;
+    surface.set_terminal(term_state, renderer);
+    tracing::info!("Terminal spawned");
+
     std::thread::spawn(move || loop {
         surface.apply_toggle(&qh);
         if let Err(e) = queue.blocking_dispatch(&mut surface) {
@@ -37,11 +43,6 @@ async fn main() -> Result<()> {
             break;
         }
     });
-
-    // ── Terminal (VTE) ──────────────────────────────────────────────────────
-    // TODO (#7/#8): wire TerminalState into the Wayland surface renderer
-    let _term = vte::TerminalState::new(220, 50, "zellij")?;
-    tracing::info!("Terminal spawned");
 
     // ── Global shortcut ─────────────────────────────────────────────────────
     let shortcut_key = config.shortcut.clone();

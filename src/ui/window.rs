@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
+    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{Capability, SeatHandler, SeatState},
+    seat::keyboard::{KeyboardHandler, KeyEvent, Keysym, Modifiers, RepeatInfo},
     shell::{
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
@@ -17,9 +20,11 @@ use smithay_client_toolkit::{
 use std::sync::{Arc, Mutex};
 use wayland_client::{
     globals::registry_queue_init,
-    protocol::{wl_output, wl_shm, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
     Connection, EventQueue, QueueHandle,
 };
+
+use super::input;
 
 // ── Shared toggle flag between tokio (shortcut) and Wayland thread ──────────
 
@@ -44,6 +49,8 @@ pub struct DropdownSurface {
     compositor_state: CompositorState,
     shm: Shm,
     layer_shell: LayerShell,
+    seat_state: SeatState,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
 
     layer_surface: Option<LayerSurface>,
     pool: Option<SlotPool>,
@@ -56,6 +63,11 @@ pub struct DropdownSurface {
     pub visible: bool,
 
     pub toggle_flag: ToggleFlag,
+
+    term_state: Option<crate::vte::TerminalState>,
+    renderer: Option<crate::renderer::Renderer>,
+    font_size: f32,
+    modifiers: Modifiers,
 }
 
 impl DropdownSurface {
@@ -74,6 +86,7 @@ impl DropdownSurface {
         let layer_shell =
             LayerShell::bind(&globals, &qh).context("wlr-layer-shell not available — is KWin running?")?;
         let shm = Shm::bind(&globals, &qh).context("wl_shm not available")?;
+        let seat_state = SeatState::new(&globals, &qh);
 
         let state = Self {
             registry_state: RegistryState::new(&globals),
@@ -81,6 +94,8 @@ impl DropdownSurface {
             compositor_state,
             shm,
             layer_shell,
+            seat_state,
+            keyboard: None,
             layer_surface: None,
             pool: None,
             screen_width: 1920,
@@ -89,9 +104,23 @@ impl DropdownSurface {
             opacity,
             visible: false,
             toggle_flag,
+            term_state: None,
+            renderer: None,
+            font_size: 16.0,
+            modifiers: Modifiers::default(),
         };
 
         Ok((state, queue))
+    }
+
+    pub fn set_terminal(
+        &mut self,
+        term: crate::vte::TerminalState,
+        renderer: crate::renderer::Renderer,
+    ) {
+        self.font_size = 16.0;
+        self.term_state = Some(term);
+        self.renderer = Some(renderer);
     }
 
     pub fn create_surface(&mut self, qh: &QueueHandle<Self>) {
@@ -124,7 +153,7 @@ impl DropdownSurface {
         600 * self.height_percent as u32 / 100
     }
 
-    fn draw(&mut self, qh: &QueueHandle<Self>) {
+    fn draw(&mut self, _qh: &QueueHandle<Self>) {
         let Some(layer_surface) = &self.layer_surface else {
             return;
         };
@@ -149,13 +178,17 @@ impl DropdownSurface {
             )
             .expect("failed to create shm buffer");
 
-        // Catppuccin Mocha surface0 — dark, slightly purple
-        let alpha = (self.opacity * 255.0) as u8;
-        for pixel in canvas.chunks_exact_mut(4) {
-            pixel[0] = 30;    // B
-            pixel[1] = 30;    // G
-            pixel[2] = 46;    // R
-            pixel[3] = alpha; // A
+        if let (Some(renderer), Some(term_state)) = (&self.renderer, &self.term_state) {
+            renderer.render(&term_state.term, canvas, width as usize, self.font_size);
+        } else {
+            // Catppuccin Mocha surface0 — dark, slightly purple
+            let alpha = (self.opacity * 255.0) as u8;
+            for pixel in canvas.chunks_exact_mut(4) {
+                pixel[0] = 30;    // B
+                pixel[1] = 30;    // G
+                pixel[2] = 46;    // R
+                pixel[3] = alpha; // A
+            }
         }
 
         let surface = layer_surface.wl_surface();
@@ -268,15 +301,92 @@ impl ShmHandler for DropdownSurface {
     }
 }
 
+impl SeatHandler for DropdownSurface {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Keyboard && self.keyboard.is_none() {
+            let kb = self.seat_state.get_keyboard(qh, &seat, None).expect("keyboard");
+            self.keyboard = Some(kb);
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Keyboard {
+            self.keyboard = None;
+        }
+    }
+
+    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl KeyboardHandler for DropdownSurface {
+    fn enter(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym],
+    ) {}
+
+    fn leave(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32,
+    ) {}
+
+    fn press_key(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent,
+    ) {
+        if let Some(bytes) = input::key_to_bytes(event.keysym, event.utf8.as_deref(), &self.modifiers) {
+            if let Some(term) = &self.term_state {
+                term.write_input(&bytes);
+            }
+        }
+    }
+
+    fn release_key(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent,
+    ) {}
+
+    fn update_modifiers(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: u32,
+    ) {
+        self.modifiers = modifiers;
+    }
+
+    fn update_repeat_info(
+        &mut self, _: &Connection, _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard, _: RepeatInfo,
+    ) {}
+}
+
 impl ProvidesRegistryState for DropdownSurface {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
+    registry_handlers![OutputState, SeatState];
 }
 
 delegate_compositor!(DropdownSurface);
 delegate_output!(DropdownSurface);
 delegate_layer!(DropdownSurface);
 delegate_shm!(DropdownSurface);
+delegate_seat!(DropdownSurface);
+delegate_keyboard!(DropdownSurface);
 delegate_registry!(DropdownSurface);

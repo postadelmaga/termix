@@ -111,7 +111,7 @@ pub async fn register_and_listen(shortcut_name: String, toggle_flag: ToggleFlag)
 
     // Listen for activations via the invokeAction signal on /component/termix
     // KGlobalAccel calls org.kde.kglobalaccel.Component.invokeAction on our path
-    let rule = format!(
+    let _rule = format!(
         "type='signal',interface='org.kde.kglobalaccel.Component',\
          member='invokeAction',path='/component/termix'"
     );
