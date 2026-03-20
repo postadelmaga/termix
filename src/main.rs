@@ -5,26 +5,52 @@ mod ui;
 use anyhow::Result;
 use config::Config;
 use terminal::Terminal;
-use ui::DropdownWindow;
+use ui::{DropdownSurface, ToggleFlag};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let config = Config::load()?;
-    tracing::info!("Config loaded: shortcut={}, backend={:?}", config.shortcut, config.terminal);
+    tracing::info!(
+        "Config loaded: shortcut={}, backend={:?}",
+        config.shortcut,
+        config.terminal
+    );
 
-    let window = DropdownWindow::new(config.height_percent, config.opacity, config.animation_ms);
-    window.init()?;
+    // Shared flag: toggled by the global shortcut (tokio side),
+    // consumed by the Wayland event loop (dedicated thread).
+    let toggle_flag = ToggleFlag::default();
 
+    // ── Wayland thread ──────────────────────────────────────────────────────
+    let (mut surface, mut queue) =
+        DropdownSurface::new(config.height_percent, config.opacity, toggle_flag.clone())?;
+
+    let qh = queue.handle();
+    surface.create_surface(&qh);
+
+    std::thread::spawn(move || {
+        loop {
+            // Check toggle from shortcut side
+            surface.apply_toggle(&qh);
+
+            // Dispatch Wayland events (blocking up to 16ms)
+            if let Err(e) = queue.blocking_dispatch(&mut surface) {
+                tracing::error!("Wayland dispatch error: {e}");
+                break;
+            }
+        }
+    });
+
+    // ── Terminal process ────────────────────────────────────────────────────
     let mut terminal = Terminal::new(&config);
     terminal.spawn()?;
 
-    // TODO (#5): register global shortcut via KDE DBus (zbus)
-    // TODO (#4): run Wayland event loop
+    // ── Main loop ───────────────────────────────────────────────────────────
+    // TODO (#5): replace Ctrl-C with global shortcut via KGlobalAccel DBus
+    tracing::info!("termix running — press {} to toggle (Ctrl-C to quit)", config.shortcut);
 
-    tracing::info!("termix running — press {} to toggle", config.shortcut);
     tokio::signal::ctrl_c().await?;
-
+    tracing::info!("shutting down");
     Ok(())
 }
