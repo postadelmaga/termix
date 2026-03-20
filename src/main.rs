@@ -1,4 +1,5 @@
 mod config;
+mod renderer;
 mod shortcut;
 mod terminal;
 mod tray;
